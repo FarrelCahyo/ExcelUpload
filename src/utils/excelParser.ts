@@ -119,6 +119,72 @@ export function matchesAssistant(selectedNurse: string, cellText: string): boole
   return targetWords.every(word => raw.includes(word));
 }
 
+export function extractTimeNote(tasks: string[]): string | undefined {
+  const timeRegex = /(?:masuk|msk)\s*(?:jam|ajm|j\.)?\s*(\d{1,2})/i;
+  for (const t of tasks) {
+    const match = t.match(timeRegex);
+    if (match) {
+      const hour = parseInt(match[1], 10);
+      return `Masuk jam ${hour} ya! ✨`;
+    }
+  }
+  return undefined;
+}
+
+export function extractDoctors(tasks: string[]): string[] {
+  const doctorRegex = /\b(?:drr?|dr|drg|prof)[\.,]|\bsp\./i;
+  const dutyFilterRegex = /^(?:piket\s*bhp|5r1p|suhu\s*kulkas|ttv\s*emr|duta\s*cs|bpjs)\b/i;
+  const doctors: string[] = [];
+
+  for (const task of tasks) {
+    if (!task) continue;
+    const splitParts = task
+      .split(/\r?\n/)
+      .flatMap(line => line.split(/\s{2,}|\s*,\s*(?=(?:drr?|dr|drg|prof)[\.,]|\bsp\.)/i))
+      .map(s => s.trim())
+      .filter(Boolean);
+
+    const rawParts: string[] = [];
+    for (const p of splitParts) {
+      if (p.startsWith('(') && rawParts.length > 0) {
+        rawParts[rawParts.length - 1] += ' ' + p;
+      } else {
+        rawParts.push(p);
+      }
+    }
+
+    for (let part of rawParts) {
+      if (!part) continue;
+      if (dutyFilterRegex.test(part)) continue;
+      if (!doctorRegex.test(part)) continue;
+
+      part = part.replace(/(?:masuk|msk)\s*(?:jam|j\.)?\s*\d+/gi, '').trim();
+      part = part.replace(/\s*\/\s*5r1p\b/gi, '').trim();
+      part = part.replace(/\b(?:5r1p|piket\s*bhp|piket\s*stock|suhu\s*kulkas|ttv\s*emr|duta\s*cs|bpjs|ttv\s*anamnesa|ceklist\s*suhu(?:\s*inter)?|rekap\s*edukasi)\b/gi, '').trim();
+      part = part.replace(/^(?:siapkan|lanjutkan)\s+/gi, '').trim();
+      part = part.replace(/^[,;/\-\s]+|[,;/\-\s]+$/g, '').trim();
+
+      part = part.replace(/^(?:drr?|dr)[,\.]\s*/i, 'dr. ');
+      part = part.replace(/^prof[\.,]\s*/i, 'Prof. ');
+      part = part.replace(/^drg[\.,]\s*/i, 'drg. ');
+
+      part = part.replace(/\b(?:drr?|dr)[,\.]\s*/gi, 'dr. ');
+      part = part.replace(/\bprof[\.,]\s*/gi, 'Prof. ');
+      part = part.replace(/\bdrg[\.,]\s*/gi, 'drg. ');
+
+      part = part.replace(/\bsp\.([a-zA-Z]+)\b/gi, (_, spec) => `Sp.${spec.toUpperCase()}`);
+
+      part = part.replace(/\s{2,}/g, ' ').trim();
+
+      if (part.length > 3 && !doctors.includes(part)) {
+        doctors.push(part);
+      }
+    }
+  }
+
+  return doctors;
+}
+
 export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string, targetSheetName?: string): ParsedScheduleData {
   let sheetName = targetSheetName;
   if (!sheetName) {
@@ -168,7 +234,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string, ta
     else if (val.includes('SABTU')) dayColumnMap[6] = c;
   }
 
-  // 3. Scan all date columns flexibly (supports 1 day up to 40+ days)
+  // 3. Scan all date columns flexibly (supports 1 day up to 45+ days)
   const maxScanCol = Math.max(range.e.c + 5, 50);
   const detectedCols: Array<{ col: number; date: Date }> = [];
   let consecutiveEmpty = 0;
@@ -182,7 +248,7 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string, ta
     } else {
       consecutiveEmpty++;
       // Stop if 4 consecutive empty cells and past recorded sheet boundary
-      if (consecutiveEmpty >= 4 && c > range.e.c) {
+      if (consecutiveEmpty >= 4 && (c > range.e.c || detectedCols.length > 0)) {
         break;
       }
     }
@@ -264,20 +330,42 @@ export function parseExcelWorkbook(workbook: XLSX.WorkBook, fileName: string, ta
         }
       }
 
+      const timeNote = extractTimeNote(tasks);
+      const doctors = extractDoctors(tasks);
+
       assignments.push({
         slotId: slot.slotId,
         rowRange: slot.range,
         shiftLabel: slot.shift,
         rawAssignees,
-        tasks
+        tasks,
+        ...(timeNote ? { timeNote } : {}),
+        ...(doctors.length > 0 ? { doctors } : {})
       });
     }
+
+    const shortDayNames = ['Min', 'Sen', 'Sel', 'Rab', 'Kam', 'Jum', 'Sab'];
+    const dayShort = shortDayNames[dayOfWeek] || 'Sen';
+    const dayNumber = date.getUTCDate();
+
+    const matchingLeave = leaveNotes.find(note => matchesAssistant('Afiz', note));
+    const isAfizLeave = Boolean(matchingLeave);
+    const afizLeaveNote = matchingLeave;
+
+    const afizAssignments = assignments.filter(
+      a => a.slotId !== 28 && a.rawAssignees.some(assignee => matchesAssistant('Afiz', assignee))
+    );
 
     days.push({
       dateISO,
       dateLabel,
       dayName,
       leaveNotes,
+      dayNumber,
+      dayShort,
+      isAfizLeave,
+      afizLeaveNote,
+      afizAssignments,
       assignments
     });
   }
