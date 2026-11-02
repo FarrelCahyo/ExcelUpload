@@ -116,7 +116,7 @@ export const StrawberryMilkBox: React.FC<StrawberryMilkBoxProps> = ({
         {/* Straw main tube */}
         <path
           d="M 106 46 L 118 18 Q 120 14, 125 15 L 138 18"
-          stroke="url(#strawGradId)"
+          stroke={`url(#${strawGradId})`}
           strokeWidth="6"
           strokeLinecap="round"
           strokeLinejoin="round"
