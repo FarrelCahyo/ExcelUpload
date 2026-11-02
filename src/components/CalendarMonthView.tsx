@@ -66,13 +66,18 @@ export const CalendarMonthView: React.FC<CalendarMonthViewProps> = ({
     return availableMonths[0] || '2026-11';
   });
 
+  // Safe fallback if dataset switches months (e.g. from Nov to Oct)
+  const effectiveMonthKey = availableMonths.includes(activeMonthKey)
+    ? activeMonthKey
+    : (availableMonths[0] || '2026-11');
+
   // Calculate year and month numbers
   const { year, monthIndex } = useMemo(() => {
-    const parts = activeMonthKey.split('-');
+    const parts = effectiveMonthKey.split('-');
     const y = parseInt(parts[0], 10) || 2026;
     const m = (parseInt(parts[1], 10) || 1) - 1;
     return { year: y, monthIndex: m };
-  }, [activeMonthKey]);
+  }, [effectiveMonthKey]);
 
   // Days in this month grid (including padding for weekday alignment)
   const { calendarCells, currentMonthStats } = useMemo(() => {

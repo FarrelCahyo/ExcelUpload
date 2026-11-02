@@ -32,13 +32,16 @@ export const App: React.FC = () => {
     return null;
   });
 
-  // 2. Selected Date with persistence
+  // 2. Selected Date with persistence (prefers today if in schedule, then Monday, then first date)
   const [selectedDate, setSelectedDate] = useState<string>(() => {
     const saved = localStorage.getItem(STORAGE_KEY_DATE);
     if (saved && scheduleData && (saved === 'ALL' || scheduleData.days.some((d) => d.dateISO === saved))) {
       return saved;
     }
     if (scheduleData && scheduleData.days.length > 0) {
+      const todayISO = new Date().toISOString().split('T')[0];
+      const todayMatch = scheduleData.days.find((d) => d.dateISO === todayISO);
+      if (todayMatch) return todayMatch.dateISO;
       const mon = scheduleData.days.find((d) => d.dayName === 'SENIN');
       return mon ? mon.dateISO : scheduleData.days[0].dateISO;
     }
@@ -56,13 +59,23 @@ export const App: React.FC = () => {
   // Callback when a file is parsed and loaded
   const handleDataLoaded = (newData: ParsedScheduleData) => {
     setScheduleData(newData);
-    localStorage.setItem(STORAGE_KEY_RAW, JSON.stringify(newData));
+    try {
+      localStorage.setItem(STORAGE_KEY_RAW, JSON.stringify(newData));
+    } catch (e) {
+      console.warn('localStorage quota exceeded', e);
+    }
 
-    // Default date preference: Senin (Monday) or first day
+    // Default date preference: today if in period, then Senin (Monday), then first day
+    const todayISO = new Date().toISOString().split('T')[0];
+    const todayMatch = newData.days.find((d) => d.dateISO === todayISO);
     const mon = newData.days.find((d) => d.dayName === 'SENIN');
-    const defaultDate = mon ? mon.dateISO : newData.days[0]?.dateISO || '';
+    const defaultDate = todayMatch ? todayMatch.dateISO : (mon ? mon.dateISO : newData.days[0]?.dateISO || '');
     setSelectedDate(defaultDate);
-    localStorage.setItem(STORAGE_KEY_DATE, defaultDate);
+    try {
+      localStorage.setItem(STORAGE_KEY_DATE, defaultDate);
+    } catch (e) {
+      console.warn('localStorage quota exceeded', e);
+    }
 
     // Close upload modal if open
     setIsUploadOpen(false);

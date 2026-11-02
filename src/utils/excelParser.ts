@@ -107,16 +107,27 @@ export function matchesAssistant(selectedNurse: string, cellText: string): boole
   const raw = cellText.toLowerCase().trim();
 
   if (raw === target) return true;
-  if (raw.includes(target)) return true;
 
   // Specific aliases
-  if (target === 'dwi ulfa' && /ulfa/i.test(raw)) return true;
+  if (target === 'dwi ulfa' && /\bulfa\b/i.test(raw)) return true;
   if (target === 'rina a' && /rin(\s*a|a\s*a)/i.test(raw)) return true;
-  if (target === 'suci p' && /suci(\s*p)?/i.test(raw)) return true;
+  if (target === 'suci p' && /\bsuci(\s*p)?\b/i.test(raw)) return true;
 
-  // Word-boundary matching
+  // Word boundary matching to avoid partial substring collisions (e.g. "rina" matching "ina")
+  const escapedTarget = target.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordBoundaryRegex = new RegExp(`(^|[^a-zA-Z0-9])${escapedTarget}([^a-zA-Z0-9]|$)`, 'i');
+  if (wordBoundaryRegex.test(raw)) return true;
+
+  // Multi-word boundary matching
   const targetWords = target.split(/\s+/).filter(w => w.length > 1);
-  return targetWords.every(word => raw.includes(word));
+  if (targetWords.length > 1) {
+    return targetWords.every(word => {
+      const escWord = word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      return new RegExp(`(^|[^a-zA-Z0-9])${escWord}([^a-zA-Z0-9]|$)`, 'i').test(raw);
+    });
+  }
+
+  return false;
 }
 
 export function extractTimeNote(tasks: string[]): string | undefined {
