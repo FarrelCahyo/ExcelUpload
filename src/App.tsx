@@ -1,305 +1,193 @@
-import React, { useState, useMemo } from 'react';
-import { ParsedScheduleData, ActiveTab } from './types/schedule';
-import { CuteHeader } from './components/CuteHeader';
-import { StrawberryDateTabs } from './components/StrawberryDateTabs';
-import { PrincessShiftCard } from './components/PrincessShiftCard';
-import { CalendarMonthView } from './components/CalendarMonthView';
-import { LoveNotesView } from './components/LoveNotesView';
-import { TeamScheduleView } from './components/TeamScheduleView';
-import { CuteBottomNav } from './components/CuteBottomNav';
-import { KawaiiUploadModal } from './components/KawaiiUploadModal';
-import { CuteEmptyState } from './components/CuteEmptyState';
-import { SideDrawerMenu } from './components/SideDrawerMenu';
-import { ShareScheduleModal } from './components/ShareScheduleModal';
-import { getDailyLoveNote } from './data/loveNotes';
-import { Heart, Sparkles, ChevronRight } from 'lucide-react';
-import { RibbonBow, TwinkleStar } from './components/illustrations';
-
-const STORAGE_KEY_RAW = 'internis_schedule_raw';
-const STORAGE_KEY_DATE = 'internis_selected_date';
+import React, { useMemo } from 'react';
+import { AlertCircle, X } from 'lucide-react';
+import { BerryTab, useScheduleStore } from './hooks/useScheduleStore';
+import { getNurseDayView } from './utils/excelParser';
+import { UploadWelcomeScreen } from './components/UploadWelcomeScreen';
+import { HeaderBar } from './components/HeaderBar';
+import { TabHariIniAfiz } from './components/tabs/TabHariIniAfiz';
+import { TabCekDokter } from './components/tabs/TabCekDokter';
+import { TabIntipPerawat } from './components/tabs/TabIntipPerawat';
+import { TabUploadPic } from './components/tabs/TabUploadPic';
+import { BunnyMood } from './components/kawaii/UsagiMascots';
 
 export const App: React.FC = () => {
-  // 1. Schedule Data state from localStorage (null if no file uploaded yet)
-  const [scheduleData, setScheduleData] = useState<ParsedScheduleData | null>(() => {
-    try {
-      const saved = localStorage.getItem(STORAGE_KEY_RAW);
-      if (saved) {
-        return JSON.parse(saved);
-      }
-    } catch (e) {
-      console.error('Gagal membaca jadwal dari localStorage:', e);
-    }
-    return null;
-  });
+  const {
+    book,
+    selectedDate,
+    setSelectedDate,
+    selectedNurse,
+    setSelectedNurse,
+    activeTab,
+    setActiveTab,
+    swaps,
+    addSwap,
+    removeSwap,
+    clearSwaps,
+    uploadFiles,
+    clearSchedule,
+    isLoading,
+    error,
+    setError,
+  } = useScheduleStore();
 
-  // 2. Selected Date with persistence (prefers today if in schedule, then Monday, then first date)
-  const [selectedDate, setSelectedDate] = useState<string>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_DATE);
-    if (saved && scheduleData && (saved === 'ALL' || scheduleData.days.some((d) => d.dateISO === saved))) {
-      return saved;
-    }
-    if (scheduleData && scheduleData.days.length > 0) {
-      const todayISO = new Date().toISOString().split('T')[0];
-      const todayMatch = scheduleData.days.find((d) => d.dateISO === todayISO);
-      if (todayMatch) return todayMatch.dateISO;
-      const mon = scheduleData.days.find((d) => d.dayName === 'SENIN');
-      return mon ? mon.dateISO : scheduleData.days[0].dateISO;
-    }
-    return '';
-  });
+  const activeViewNurse = activeTab === 'INTIP_PERAWAT' ? selectedNurse : 'Afiz';
 
-  // 3. Active Navigation Tab ('home' | 'calendar' | 'notes' | 'team')
-  const [activeTab, setActiveTab] = useState<ActiveTab>('home');
+  const currentMood: BunnyMood = useMemo(() => {
+    if (!book || !selectedDate) return 'happy';
+    const sum = getNurseDayView(book, selectedDate, activeViewNurse, swaps);
+    if (sum.status === 'LEMBUR_2_SLOT') return 'lembur';
+    if (sum.status === 'REGULER_PAGI') return 'sunny';
+    if (sum.status === 'REGULER_SORE') return 'moon';
+    if (sum.status === 'CUTI_LP') return 'sleepy';
+    return 'happy';
+  }, [book, selectedDate, activeViewNurse, swaps]);
 
-  // 4. Modals and Drawer state
-  const [isUploadOpen, setIsUploadOpen] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [isShareOpen, setIsShareOpen] = useState(false);
-
-  // Callback when a file is parsed and loaded
-  const handleDataLoaded = (newData: ParsedScheduleData) => {
-    setScheduleData(newData);
-    try {
-      localStorage.setItem(STORAGE_KEY_RAW, JSON.stringify(newData));
-    } catch (e) {
-      console.warn('localStorage quota exceeded', e);
-    }
-
-    // Default date preference: today if in period, then Senin (Monday), then first day
-    const todayISO = new Date().toISOString().split('T')[0];
-    const todayMatch = newData.days.find((d) => d.dateISO === todayISO);
-    const mon = newData.days.find((d) => d.dayName === 'SENIN');
-    const defaultDate = todayMatch ? todayMatch.dateISO : (mon ? mon.dateISO : newData.days[0]?.dateISO || '');
-    setSelectedDate(defaultDate);
-    try {
-      localStorage.setItem(STORAGE_KEY_DATE, defaultDate);
-    } catch (e) {
-      console.warn('localStorage quota exceeded', e);
-    }
-
-    // Close upload modal if open
-    setIsUploadOpen(false);
-  };
-
-  // Callback when user selects a date
-  const handleSelectDate = (dateISO: string) => {
-    setSelectedDate(dateISO);
-    localStorage.setItem(STORAGE_KEY_DATE, dateISO);
-  };
-
-  // Callback to clear all stored schedule data
-  const handleClearData = () => {
-    localStorage.removeItem(STORAGE_KEY_RAW);
-    localStorage.removeItem(STORAGE_KEY_DATE);
-    localStorage.removeItem('internis_selected_nurse');
-    setScheduleData(null);
-    setSelectedDate('');
-    setIsUploadOpen(false);
-    setIsMenuOpen(false);
-    setIsShareOpen(false);
-    setActiveTab('home');
-  };
-
-  // Compute active day for Home view
-  const activeDay = useMemo(() => {
-    if (!scheduleData || scheduleData.days.length === 0) return null;
+  if (!book) {
     return (
-      scheduleData.days.find((d) => d.dateISO === selectedDate) ||
-      scheduleData.days[0]
-    );
-  }, [scheduleData, selectedDate]);
-
-  // Compute love note snippet for Home view
-  const homeLoveNote = useMemo(() => {
-    return getDailyLoveNote(selectedDate || activeDay?.dateISO);
-  }, [selectedDate, activeDay]);
-
-  // ========================================================
-  // Case A: Clean-Start / Empty State (No schedule loaded)
-  // ========================================================
-  if (!scheduleData) {
-    return (
-      <div className="min-h-screen bg-gingham flex flex-col font-sans select-none">
-        <main className="flex-1 flex items-center justify-center p-4">
-          <CuteEmptyState
-            onOpenUpload={() => setIsUploadOpen(true)}
-            onDataLoaded={handleDataLoaded}
-          />
-        </main>
-
-        <KawaiiUploadModal
-          isOpen={isUploadOpen}
-          onClose={() => setIsUploadOpen(false)}
-          onDataLoaded={handleDataLoaded}
-          hasExistingData={false}
-        />
-      </div>
+      <UploadWelcomeScreen
+        onUploadFiles={(files) => uploadFiles(files, 'replace')}
+        isLoading={isLoading}
+        error={error}
+      />
     );
   }
 
-  // ========================================================
-  // Case B: Schedule Loaded - Full Strawberry Milk Experience
-  // ========================================================
+  const navItems: Array<{ id: BerryTab; icon: string; label: string; badge?: number }> = [
+    {
+      id: 'HARI_INI',
+      icon: '🐰🍓',
+      label: 'Jadwal Afiz',
+    },
+    {
+      id: 'CEK_DOKTER',
+      icon: '🩺☁️',
+      label: 'Cek Dokter',
+    },
+    {
+      id: 'INTIP_PERAWAT',
+      icon: '🐰🌸',
+      label: 'Intip Perawat',
+    },
+    {
+      id: 'UPLOAD_PIC',
+      icon: '🥛📂',
+      label: 'Upload & PIC',
+    },
+  ];
+
   return (
-    <div className="min-h-screen bg-gingham flex flex-col font-sans pb-28 text-pink-950">
-      {/* 1. Common Top Header */}
-      <CuteHeader
-        fileName={scheduleData.fileName}
-        periodLabel={scheduleData.periodLabel}
-        assistantName="Afiz"
-        onOpenUpload={() => setIsUploadOpen(true)}
-        onOpenMenu={() => setIsMenuOpen(true)}
+    <div className="min-h-screen flex flex-col pb-20">
+      <HeaderBar
+        book={book}
+        selectedNurse={activeViewNurse}
+        onSelectNurse={() => {
+          setActiveTab('HARI_INI');
+        }}
+        currentMood={currentMood}
+        onQuickUpload={(files) => uploadFiles(files, 'merge')}
       />
 
-      {/* 2. Main Tab Views */}
-      <main className="w-full max-w-md sm:max-w-xl mx-auto px-4 flex-1">
-        {/* Tab 1: Beranda (Home - Jadwal Afiz) */}
-        {activeTab === 'home' && (
-          <div className="space-y-4 animate-in fade-in duration-200">
-            {/* Strawberry Date Horizontal Tabs */}
-            <StrawberryDateTabs
-              days={scheduleData.days}
-              selectedDate={selectedDate || activeDay?.dateISO || ''}
-              onSelectDate={handleSelectDate}
-            />
-
-            {/* Princess Shift Card for Afiz */}
-            {activeDay ? (
-              <PrincessShiftCard
-                assignments={activeDay.afizAssignments}
-                isLeave={activeDay.isAfizLeave}
-                leaveNote={activeDay.afizLeaveNote}
-                dateLabel={activeDay.dateLabel}
-                collectiveTask={activeDay.assignments.find((a) => a.slotId === 28)}
-              />
-            ) : (
-              <div className="lace-card p-6 text-center text-sm font-semibold text-[#8C5E68]">
-                Data jadwal tanggal terpilih tidak ditemukan 🌸
-              </div>
-            )}
-
-            {/* Floating Sweet Love Note Snippet Capsule */}
-            <div
-              onClick={() => setActiveTab('notes')}
-              className="lace-card p-4 sm:p-5 relative overflow-hidden cursor-pointer hover:shadow-lg hover:shadow-pink-200/70 transition-all duration-200 active:scale-99 group"
-              role="button"
-              tabIndex={0}
-              aria-label="Buka Pesan Cinta Lengkap"
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' || e.key === ' ') {
-                  setActiveTab('notes');
-                }
-              }}
-            >
-              {/* Corner Ribbon accent */}
-              <div className="absolute -top-2.5 -right-2.5 pointer-events-none drop-shadow-2xs rotate-12">
-                <RibbonBow size={28} color="#FF6B8B" secondaryColor="#D63447" />
-              </div>
-
-              <div className="flex items-start gap-3">
-                <div className="w-8 h-8 rounded-full bg-pink-100 flex items-center justify-center shrink-0 text-pink-600 mt-0.5 group-hover:scale-110 transition-transform">
-                  <Heart className="w-4 h-4 fill-pink-500 text-pink-500 animate-pulse" />
-                </div>
-                <div className="flex-1 min-w-0 pr-4">
-                  <div className="flex items-center gap-1.5 mb-1">
-                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-[#C2185B]">
-                      Pesan Cinta Hari Ini
-                    </span>
-                    <Sparkles className="w-3 h-3 text-pink-400" />
-                  </div>
-                  <p className="text-xs sm:text-sm font-semibold text-[#4A2E35] italic leading-relaxed line-clamp-2">
-                    "{homeLoveNote.message}"
-                  </p>
-                  <div className="mt-2 flex items-center gap-1 text-[11px] font-black text-pink-600 group-hover:text-pink-700">
-                    <span>Buka Pesan Cinta Lengkap</span>
-                    <ChevronRight className="w-3 h-3 transition-transform group-hover:translate-x-0.5" />
-                  </div>
-                </div>
-              </div>
+      {/* Main Content Container (Sleek Mobile-Proportioned Max Width) */}
+      <main className="flex-1 max-w-xl w-full mx-auto px-3 pt-2.5">
+        {error && (
+          <div
+            role="alert"
+            className="mb-4 rounded-2xl bg-[#FFE4E6] border-2 border-[#FDA4AF] p-3.5 flex items-center justify-between gap-2 text-xs font-semibold text-[#9F1239]"
+          >
+            <div className="flex items-center gap-2">
+              <AlertCircle className="w-4 h-4 shrink-0 text-[#E11D48]" />
+              <span>{error}</span>
             </div>
+            <button
+              type="button"
+              onClick={() => setError(null)}
+              className="p-1 hover:bg-[#FECDD3] rounded-full cursor-pointer"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
         )}
 
-        {/* Tab 2: Kalender (Monthly Grid View) */}
-        {activeTab === 'calendar' && (
-          <div className="animate-in fade-in duration-200">
-            <CalendarMonthView
-              days={scheduleData.days}
-              selectedDate={selectedDate}
-              onSelectDate={(iso) => {
-                handleSelectDate(iso);
-                setActiveTab('home');
-              }}
-              onNavigateHome={() => setActiveTab('home')}
-            />
-          </div>
+        {activeTab === 'HARI_INI' && (
+          <TabHariIniAfiz
+            book={book}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            selectedNurse="Afiz"
+            onGoToPeekTab={() => setActiveTab('INTIP_PERAWAT')}
+          />
         )}
 
-        {/* Tab 3: Pesan Cinta (Love Notes Drawer / View) */}
-        {activeTab === 'notes' && (
-          <div className="animate-in fade-in duration-200">
-            <LoveNotesView
-              todayISO={selectedDate || activeDay?.dateISO || new Date().toISOString().split('T')[0]}
-            />
-          </div>
+        {activeTab === 'CEK_DOKTER' && (
+          <TabCekDokter
+            book={book}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            swaps={swaps}
+            onInspectNurse={(nurse) => {
+              if (nurse.toLowerCase() === 'afiz') {
+                setActiveTab('HARI_INI');
+              } else {
+                setSelectedNurse(nurse);
+                setActiveTab('INTIP_PERAWAT');
+              }
+            }}
+          />
         )}
 
-        {/* Tab 4: Jadwal Teman (Roster Rekan & Pencarian Dokter) */}
-        {activeTab === 'team' && (
-          <div className="animate-in fade-in duration-200">
-            <TeamScheduleView
-              days={scheduleData.days}
-              selectedDate={selectedDate}
-              onSelectDate={handleSelectDate}
-            />
-          </div>
+        {activeTab === 'INTIP_PERAWAT' && (
+          <TabIntipPerawat
+            book={book}
+            selectedDate={selectedDate}
+            onSelectDate={setSelectedDate}
+            peekedNurse={selectedNurse}
+            onSelectPeekedNurse={setSelectedNurse}
+          />
+        )}
+
+        {activeTab === 'UPLOAD_PIC' && (
+          <TabUploadPic
+            book={book}
+            selectedNurse="Afiz"
+            swaps={swaps}
+            onUploadFiles={uploadFiles}
+            onClearSchedule={clearSchedule}
+            isLoading={isLoading}
+          />
         )}
       </main>
 
-      {/* 3. Bottom Sticky Kawaii Navigation */}
-      <CuteBottomNav activeTab={activeTab} onTabChange={setActiveTab} />
-
-      {/* 4. Side Drawer Menu */}
-      <SideDrawerMenu
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-        activeTab={activeTab}
-        onTabChange={setActiveTab}
-        fileName={scheduleData.fileName}
-        periodLabel={scheduleData.periodLabel}
-        totalDays={scheduleData.days.length}
-        onOpenUpload={() => {
-          setIsMenuOpen(false);
-          setIsUploadOpen(true);
-        }}
-        onClearData={handleClearData}
-        onOpenShare={() => {
-          setIsMenuOpen(false);
-          setIsShareOpen(true);
-        }}
-      />
-
-      {/* 5. Upload Modal */}
-      <KawaiiUploadModal
-        isOpen={isUploadOpen}
-        onClose={() => setIsUploadOpen(false)}
-        onDataLoaded={handleDataLoaded}
-        currentFileName={scheduleData.fileName}
-        onClearData={handleClearData}
-        hasExistingData={true}
-      />
-
-      {/* 6. WhatsApp Share Modal */}
-      <ShareScheduleModal
-        isOpen={isShareOpen}
-        onClose={() => setIsShareOpen(false)}
-        days={scheduleData.days}
-        selectedAssistant="Afiz"
-        selectedDate={selectedDate}
-        periodLabel={scheduleData.periodLabel}
-      />
+      {/* Sleek Compact Kawaii Cloud Bottom Navigation Bar */}
+      <nav
+        aria-label="Navigasi Utama Sheyla"
+        className="fixed bottom-2.5 left-1/2 -translate-x-1/2 z-40 w-[calc(100%-20px)] max-w-md bg-white/95 backdrop-blur-md border border-[#FBCFE8] rounded-2xl shadow-cloud px-1.5 py-1"
+      >
+        <div className="grid grid-cols-4 gap-1">
+          {navItems.map((item) => {
+            const isActive = activeTab === item.id;
+            return (
+              <button
+                key={item.id}
+                type="button"
+                onClick={() => setActiveTab(item.id)}
+                className={`relative rounded-xl py-1.5 px-1 flex flex-col items-center justify-center transition cursor-pointer ${
+                  isActive
+                    ? 'bg-[#FF4D79] text-white shadow-2xs'
+                    : 'text-[#4A1525] hover:bg-[#FFF5F8]'
+                }`}
+              >
+                <span className="text-xs leading-none">{item.icon}</span>
+                <span className="font-display font-bold text-[10px] mt-0.5 truncate max-w-full">
+                  {item.label}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </nav>
     </div>
   );
 };
 
 export default App;
+

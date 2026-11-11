@@ -1,35 +1,78 @@
-export type ActiveTab = 'home' | 'calendar' | 'notes' | 'team';
+export type TimePrioritySource = 'PRIO_1_DATE_CELL' | 'PRIO_2_DAY_COL' | 'PRIO_3_SHIFT_INDUK';
+export type ShiftPeriod = 'PAGI' | 'SORE';
+export type DailyStatus = 'REGULER_PAGI' | 'REGULER_SORE' | 'LEMBUR_2_SLOT' | 'CUTI_LP' | 'LIBUR_OFF';
 
 export interface SlotAssignment {
-  slotId: number;            // 1 s/d 28
-  rowRange: [number, number] | number[]; // [75, 79] (1-based Excel row)
-  shiftLabel: string;        // "14.00", "Jam 7", "Jam 8", "j 9", "J.10"
-  rawAssignees: string[];    // e.g. ["Afiz"]
-  tasks: string[];           // Daftar baris tugas di kolom hari terkait
-  timeNote?: string;         // Catatan jam masuk, e.g. "Masuk jam 12 ya!"
-  doctors?: string[];        // Daftar dokter konsul/poli di slot ini, e.g. ["dr. Tan Hengky C+D", "dr. Rheza Sp.OT"]
+  slotId: string;
+  blockRows: [number, number];
+  shiftIndukRaw: string;
+  effectiveTime: string;          // e.g. "08.00"
+  effectiveTimeMinutes: number;   // e.g. 480 for sorting
+  prioritySource: TimePrioritySource;
+  priorityRawNote: string;        // e.g. "jam 8" or "msk j.9" or "Jam 7"
+  period: ShiftPeriod;            // PAGI (< 11:00) | SORE (>= 11:00)
+  nurseName: string;              // Canonical nurse name e.g. "Afiz"
+  dateNote?: string;              // Pre-task note in date cell e.g. "MCU", "dr.Neni dl", "TLJ dl"
+  doctors: string[];              // Highlighted doctors in this slot
+  tasks: string[];                // Companion clinic tasks in this slot
+  isAllAssistants?: boolean;
+  swappedFrom?: string;           // Populated when swap simulation is active
 }
 
-export interface DailySchedule {
-  dateISO: string;           // "2026-11-02"
-  dateLabel: string;         // "Senin, 2 Nov 2026"
-  dayName: string;           // "SENIN" | "SELASA" | "RABU" | "KAMIS" | "JUMAT" | "SABTU" | "MINGGU"
+export interface LeaveEntry {
+  nurseName: string;
+  rawText: string;                // e.g. "Afiz cuti", "Endang LP"
+  type: 'CUTI' | 'LP' | 'LAINNYA';
+}
+
+export interface DaySchedule {
+  dateISO: string;                // "2026-11-11"
+  dayOfWeek: number;              // 0=Sun, 1=Mon ... 6=Sat
+  dayNameID: string;              // "Rabu"
+  isSunday: boolean;
   assignments: SlotAssignment[];
-  leaveNotes: string[];      // Dari Baris 101-103, contoh: ["Nurul U cuti"]
-  dayNumber?: number;        // Tanggal angka, e.g. 2
-  dayShort?: string;         // Singkatan hari, e.g. "Sen"
-  isAfizLeave?: boolean;     // Apakah Afiz sedang libur / cuti
-  afizLeaveNote?: string;    // Keterangan cuti/libur Afiz jika ada
-  afizAssignments?: SlotAssignment[]; // Slot tugas khusus Afiz pada hari ini
+  sharedTasks: string[];          // From "semua asisten" row
+  leaves: LeaveEntry[];
 }
 
-export interface ParsedScheduleData {
-  fileName: string;
-  sheetName: string;
-  uploadedAt: string;
-  periodLabel?: string;
-  assistantList: string[];   // Daftar nama asisten unik
-  days: DailySchedule[];     // Array jadwal per kolom tanggal
+export interface MonthlyPICItem {
+  category: string;               // e.g. "Laporan Bulanan", "Stock Opname", "Inventaris/K3", "Ceklist Suhu"
+  internisPic: string;
+  dahliaPic?: string;
 }
 
-export type ViewMode = 'personal' | 'daily' | 'doctors';
+export interface ParsedScheduleBook {
+  sourceFiles: string[];
+  monthLabel: string;
+  dates: Record<string, DaySchedule>; // Keyed by dateISO "YYYY-MM-DD"
+  allNurses: string[];
+  allDoctors: string[];
+  monthlyPICs: MonthlyPICItem[];
+  casePresentationNote: string;
+  handoverNote: string;
+  headOfUnit: string;
+}
+
+export interface SwapOverride {
+  id: string;
+  dateISO: string;
+  slotId: string;
+  fromNurse: string;
+  toNurse: string;
+  targetSlotId?: string;          // Optional reciprocal slot of toNurse
+  note?: string;
+  createdAt: string;
+}
+
+export interface NurseDaySummary {
+  dateISO: string;
+  dayNameID: string;
+  isSunday: boolean;
+  nurseName: string;
+  status: DailyStatus;
+  slots: SlotAssignment[];
+  leaveEntry?: LeaveEntry;
+  sharedTasks: string[];
+  isCasePresentationDay: boolean;
+}
+
